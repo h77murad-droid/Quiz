@@ -1,100 +1,116 @@
-import { supabase } from "./supabaseClient";
+// app/lib/roomService.ts
+import { supabase } from "../lib/supabaseClient";
 
-function makeRoomCode(length = 6) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < length; i++) {
-    out += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return out;
+// تعريف نوع اللاعب
+export interface Player {
+  id: string;
+  room_code: string;
+  player_name: string;
+  score: number;
+  joined_at: string;
 }
 
-// إنشاء غرفة جديدة + إضافة المضيف كلاعب أول
-export async function createRoomAndHost(hostName: string) {
-  const roomCode = makeRoomCode(6);
+// إنشاء غرفة جديدة وإضافة المضيف كلاعب أول
+export async function createRoom(hostName: string) {
+  // توليد كود عشوائي للغرفة مثل ABC123 (6 حروف/أرقام)
+  const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-  // 1. أنشئ الغرفة
-  const { error: roomError } = await supabase.from("rooms").insert([
-    {
-      room_code: roomCode,
-      players: [],
-    },
-  ]);
-  if (roomError) {
-    console.error("roomError:", roomError);
-    throw roomError;
-  }
-
-  // 2. أضف المضيف في player_rooms
-  const { data: playerInsert, error: playerError } = await supabase
-    .from("player_rooms")
+  const { data, error } = await supabase
+    .from("room_players")
     .insert([
       {
         room_code: roomCode,
-        player_name: hostName,
+        player_name: hostName || "المضيف",
         score: 0,
       },
     ])
     .select("*")
     .single();
 
-  if (playerError) {
-    console.error("playerError:", playerError);
-    throw playerError;
+  if (error) {
+    console.error("createRoom error:", error);
+    throw error;
   }
 
   return {
     roomCode,
-    player: playerInsert,
+    hostPlayer: data,
   };
 }
 
-// انضمام لاعب عادي لغرفة موجودة
+// انضمام لاعب جديد لغرفة موجودة
 export async function joinRoom(roomCode: string, playerName: string) {
-  // تأكد أن الغرفة موجودة
-  const { data: roomData, error: roomFetchError } = await supabase
-    .from("rooms")
-    .select("*")
-    .eq("room_code", roomCode)
-    .single();
-
-  if (roomFetchError || !roomData) {
-    console.error("roomFetchError:", roomFetchError);
-    throw new Error("الغرفة غير موجودة");
-  }
-
-  // أضف اللاعب الجديد
-  const { data: newPlayer, error: insertError } = await supabase
-    .from("player_rooms")
+  const { data, error } = await supabase
+    .from("room_players")
     .insert([
       {
         room_code: roomCode,
-        player_name: playerName,
+        player_name: playerName || "لاعب مجهول",
         score: 0,
       },
     ])
     .select("*")
     .single();
 
-  if (insertError) {
-    console.error("insertError:", insertError);
-    throw insertError;
+  if (error) {
+    console.error("joinRoom error:", error);
+    throw error;
   }
 
-  // رجّع كل اللاعبين الحاليين في الغرفة
-  const { data: playersList, error: listError } = await supabase
-    .from("player_rooms")
+  return data;
+}
+
+// قراءة اللاعبين الحاليين في الغرفة (مرة واحدة)
+export async function getPlayersInRoom(roomCode: string) {
+  const { data, error } = await supabase
+    .from("room_players")
     .select("*")
-    .eq("room_code", roomCode);
+    .eq("room_code", roomCode)
+    .order("joined_at", { ascending: true });
 
-  if (listError) {
-    console.error("listError:", listError);
-    throw listError;
+  if (error) {
+    console.error("getPlayersInRoom error:", error);
+    throw error;
   }
 
-  return {
-    room: roomData,
-    player: newPlayer,
-    allPlayers: playersList ?? [],
+  return data as Player[];
+}
+
+/**
+ * الاشتراك اللحظي (Realtime) على لاعبي الغرفة.
+ * - onUpdate() تنادَى كل ما يصير تغيير (لاعب دخل/طلع/تغيّر اسمه)
+ * - ترجع unsubscribe() لازم تنادَى في cleanup لما نطلع من الشاشة
+ */
+export function subscribeToRoomPlayers(
+  roomCode: string,
+  onUpdate: (players: Player[]) => void
+) {
+  const channel = supabase
+    .channel(`room_players-${roomCode}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*", // أي تغيير (INSERT, UPDATE, DELETE)
+        schema: "public",
+        table: "room_players",
+        filter: `room_code=eq.${roomCode}`,
+      },
+      async () => {
+        // كل مرة يتغير شيء، رجع أحدث لستة من الداتا
+        const latestPlayers = await getPlayersInRoom(roomCode);
+        onUpdate(latestPlayers);
+      }
+    )
+    .subscribe(async (status) => {
+      // أول ما الاشتراك يشتغل، جيب اللاعبين الحاليين
+      if (status === "SUBSCRIBED") {
+        const initialPlayers = await getPlayersInRoom(roomCode);
+        onUpdate(initialPlayers);
+      }
+    });
+
+  // دالة إلغاء الاشتراك
+  return () => {
+    supabase.removeChannel(channel);
   };
 }

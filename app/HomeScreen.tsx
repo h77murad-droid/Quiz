@@ -1,193 +1,159 @@
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { createRoomAndHost, joinRoom } from "../lib/roomService";
+
+import {
+    createRoom,
+    joinRoom,
+} from "../lib/roomService"; // تأكد من المسار (لو lib في نفس المستوى اكتب ./lib/roomService ، لو lib فوق اكتب ../lib/roomService)
 
 export default function HomeScreen() {
-  // حق المضيف
-  const [hostName, setHostName] = useState("");
+  const router = useRouter();
 
-  // حق اللاعب العادي
-  const [joinName, setJoinName] = useState("");
+  // اسم اللاعب/المضيف
+  const [name, setName] = useState("");
+  // كود الغرفة (يستخدمه اللاعب فقط)
   const [joinCode, setJoinCode] = useState("");
 
-  // دالة: إنشاء غرفة جديدة وإضافة المضيف
-  const handleCreateRoom = async () => {
-    if (!hostName.trim()) {
-      Alert.alert("تنبيه", "اكتب اسمك أولاً كمضيف.");
-      return;
-    }
-
+  async function handleHostPress() {
     try {
-      const { roomCode, player } = await createRoomAndHost(hostName.trim());
+      // تأكد من الاسم
+      const finalName = name && name.trim().length > 0 ? name.trim() : "المضيف";
 
-      Alert.alert(
-        "🎉 تم إنشاء الغرفة",
-        `كود الغرفة: ${roomCode}\nاسمك (المضيف): ${player.player_name}`
-      );
+      // 1. أنشئ الغرفة وسجل نفسك اول لاعب
+      const { roomCode } = await createRoom(finalName);
 
-      console.log("غرفة جديدة:", roomCode);
-      console.log("المضيف:", player);
-      // لاحقًا: بننقلك لشاشة الغرفة نفسها
+      // 2. انتقل إلى غرفة الانتظار ومرر كود الغرفة
+      router.push(`/waiting-room?roomCode=${roomCode}`);
     } catch (err: any) {
-      console.error("خطأ في إنشاء الغرفة:", err);
-      Alert.alert("خطأ", "ما قدرنا ننشئ الغرفة. جرّب مرة ثانية.");
+      console.error("خطأ عند إنشاء الغرفة:", err);
+      Alert.alert("خطأ", "تعذر إنشاء الغرفة.");
     }
-  };
+  }
 
-  // دالة: الانضمام لغرفة موجودة
-  const handleJoinRoom = async () => {
-    if (!joinName.trim() || !joinCode.trim()) {
-      Alert.alert("تنبيه", "اكتب اسمك وكود الغرفة.");
-      return;
-    }
-
+  async function handleJoinPress() {
     try {
-      const { room, player, allPlayers } = await joinRoom(
-        joinCode.trim(),
-        joinName.trim()
-      );
+      if (!joinCode.trim()) {
+        Alert.alert("تنبيه", "الرجاء إدخال كود الغرفة للانضمام.");
+        return;
+      }
 
-      Alert.alert(
-        "✅ انضممت بنجاح",
-        `دخلت غرفة: ${room.room_code}\nعدد اللاعبين الآن: ${allPlayers.length}`
-      );
+      const finalName = name && name.trim().length > 0 ? name.trim() : "لاعب مجهول";
 
-      console.log("الغرفة:", room);
-      console.log("اللاعب الجديد:", player);
-      console.log("جميع اللاعبين:", allPlayers);
-      // لاحقًا: بننقلك لشاشة الغرفة نفسها
+      // ينضم كلاعب موجود
+      await joinRoom(joinCode.trim(), finalName);
+
+      // يروح نفس غرفة الانتظار
+      router.push(`/waiting-room?roomCode=${joinCode.trim()}`);
     } catch (err: any) {
-      console.error("خطأ في الانضمام:", err);
-      Alert.alert("خطأ", "تعذر الانضمام. تأكد من الكود أو جرّب مرة ثانية.");
+      console.error("خطأ عند الانضمام:", err);
+      Alert.alert("خطأ", "فشل الانضمام. تأكد من كود الغرفة.");
     }
-  };
+  }
 
   return (
     <View style={styles.container}>
-      {/* عنوان عام */}
-      <Text style={styles.title}>🎮 لعبة المسابقات الذكية</Text>
-      <Text style={styles.subtitle}>اختر واحد من الخيارين</Text>
+      <Text style={styles.title}>لعبة المسابقات الذكية</Text>
+      <Text style={styles.sub}>اختر وضعك</Text>
 
-      {/* قسم المضيف */}
-      <View style={styles.cardHost}>
-        <Text style={styles.cardTitle}>أنا المضيف 👑</Text>
-        <Text style={styles.cardHint}>أنشئ غرفة جديدة وابدأ اللعبة</Text>
-
+      {/* إدخال الاسم */}
+      <View style={styles.card}>
+        <Text style={styles.label}>اسمك (اختياري):</Text>
         <TextInput
           style={styles.input}
-          placeholder="اكتب اسمك (مثلاً: حسن)"
+          placeholder="اكتب اسمك..."
           placeholderTextColor="#999"
-          value={hostName}
-          onChangeText={setHostName}
+          value={name}
+          onChangeText={setName}
         />
-
-        <TouchableOpacity style={[styles.button, styles.buttonCreate]} onPress={handleCreateRoom}>
-          <Text style={styles.buttonText}>إنشاء غرفة جديدة</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* قسم اللاعب */}
-      <View style={styles.cardJoin}>
-        <Text style={styles.cardTitle}>أنا لاعب 🙋‍♂️</Text>
-        <Text style={styles.cardHint}>ادخل كود الغرفة واسمك</Text>
+      {/* أزرار الوضع */}
+      <TouchableOpacity style={[styles.bigButton, { backgroundColor: "#1d4ed8" }]} onPress={handleHostPress}>
+        <Text style={styles.bigButtonText}>✍️ أنا المضيف</Text>
+        <Text style={styles.smallNote}>إنشاء غرفة + الأسئلة</Text>
+      </TouchableOpacity>
 
+      <View style={{ height: 16 }} />
+
+      {/* إدخال كود غرفة للانضمام كلاعب */}
+      <View style={styles.card}>
+        <Text style={styles.label}>كود الغرفة</Text>
         <TextInput
           style={styles.input}
-          placeholder="كود الغرفة (مثلاً EOAT6V)"
+          placeholder="ادخل كود الغرفة (مثلاً: 87HM9U)"
           placeholderTextColor="#999"
           autoCapitalize="characters"
           value={joinCode}
           onChangeText={setJoinCode}
         />
-
-        <TextInput
-          style={styles.input}
-          placeholder="اسمك (مثلاً: علي)"
-          placeholderTextColor="#999"
-          value={joinName}
-          onChangeText={setJoinName}
-        />
-
-        <TouchableOpacity style={[styles.button, styles.buttonJoin]} onPress={handleJoinRoom}>
-          <Text style={styles.buttonText}>انضم للغرفة</Text>
-        </TouchableOpacity>
       </View>
+
+      <TouchableOpacity style={[styles.bigButton, { backgroundColor: "#065f46" }]} onPress={handleJoinPress}>
+        <Text style={styles.bigButtonText}>👋 أنا لاعب</Text>
+        <Text style={styles.smallNote}>انضم بإدخال كود الغرفة</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
-// ستايلات بسيطة مبدئية
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0d1321",
-    paddingHorizontal: 20,
-    paddingTop: 60,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 24,
+    paddingTop: 80,
   },
   title: {
-    color: "white",
-    fontSize: 24,
+    color: "#fff",
+    fontSize: 28,
     fontWeight: "700",
     textAlign: "center",
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  subtitle: {
-    color: "#bbb",
-    fontSize: 14,
+  sub: {
+    color: "#94a3b8",
+    fontSize: 16,
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: 32,
   },
-  cardHost: {
-    backgroundColor: "#1a1f35",
+  card: {
+    backgroundColor: "#1e293b",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#3a3f63",
-  },
-  cardJoin: {
-    backgroundColor: "#10291a",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#254f2f",
-  },
-  cardTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 4,
-    textAlign: "center",
-  },
-  cardHint: {
-    color: "#888",
-    fontSize: 13,
-    textAlign: "center",
     marginBottom: 16,
   },
+  label: {
+    color: "#fff",
+    fontSize: 16,
+    marginBottom: 8,
+    fontWeight: "600",
+  },
   input: {
-    backgroundColor: "#2a314d",
+    backgroundColor: "#0f172a",
+    color: "#fff",
+    borderWidth: 1,
+    borderColor: "#475569",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    color: "white",
-    marginBottom: 12,
   },
-  button: {
-    borderRadius: 8,
-    paddingVertical: 12,
+  bigButton: {
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
-  buttonCreate: {
-    backgroundColor: "#1e40af", // أزرق
-  },
-  buttonJoin: {
-    backgroundColor: "#065f46", // أخضر غامق
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "600",
+  bigButtonText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
     textAlign: "center",
+  },
+  smallNote: {
+    color: "#cbd5e1",
+    fontSize: 14,
+    textAlign: "center",
+    marginTop: 4,
   },
 });
