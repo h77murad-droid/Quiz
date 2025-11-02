@@ -37,7 +37,7 @@ export default function Host() {
       </View>
 
       <Text style={styles.hint}>
-        أعطِ هذا الكود للناس. كل لاعب يكتب الكود في شاشة "أنا لاعب" ويدخل.
+        أعطِ هذا الكود للناس. كل لاعب يكتب الكود في شاشة "أنا لاعب.." ويدخل.
       </Text>
 
       <TouchableOpacity style={styles.startButton} onPress={goToLobby}>
